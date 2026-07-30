@@ -12,6 +12,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeAlignment.VisualStudio", "CodeAlignment.VisualStudio\CodeAlignment.VisualStudio.csproj", "{591B6F7C-1E86-4828-9F88-6A55556AA3A9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeAlignment.Npp", "CodeAlignment.Npp\CodeAlignment.Npp.csproj", "{E56F6E12-089C-40ED-BCFD-923E5FA121A1}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeAlignment.Common", "CodeAlignment.Common\CodeAlignment.Common.csproj", "{F33D2D88-A998-4F74-AB41-AB81878BB296}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeAlignment.Common.Test", "Test\CodeAlignment.Common.Test\CodeAlignment.Common.Test.csproj", "{F54B4D8A-EA40-434E-8A6B-8F38B61C023D}"
