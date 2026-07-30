@@ -1,0 +1,172 @@
+name: Build CodeAlignment
+
+on:
+  # push:
+    # branches: [ release, main, master ]
+    # tags: [ 'v*' ]
+  # pull_request:
+    # branches: [ release, main, master ]
+  workflow_dispatch:
+    inputs:
+      manual_tag:
+        description: 'Tag name for the release (for example: v14.1.0). If left blank it will be: manual-build'
+        required: false
+        default: 'manual-build'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build_configuration: [ Release ]
+        build_platform: [ "Any CPU", "x64" ]
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v2
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v3
+
+    - name: Restore NuGet Packages
+      run: |
+        nuget restore CodeAlignment.VisualStudio\packages.config -PackagesDirectory packages
+        nuget restore Test\CodeAlignment.Common.Test\packages.config -PackagesDirectory packages
+        msbuild code-alignment.sln /t:Restore
+
+    - name: Update Assembly Versions
+      shell: pwsh
+      run: |
+        . .\buildhelpers.ps1
+        $buildVersion = "14.1.${{ github.run_number }}.0"
+
+        UpdateVersion   CodeAlignment.Common          $buildVersion
+        UpdateVersion   CodeAlignment.Common.WinForms $buildVersion
+        UpdateVersion   CodeAlignment.Npp             $buildVersion
+        UpdateVersion   CodeAlignmentGenericCallbacks $buildVersion
+        UpdateVsVersion CodeAlignment.VisualStudio    $buildVersion
+
+        echo "BUILD_VERSION=$buildVersion" >> $env:GITHUB_ENV
+
+    - name: MSBuild of solution
+      run: |
+        msbuild code-alignment.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
+
+    - name: Prepare and Pack Artifacts
+      shell: pwsh
+      run: |
+        . .\buildhelpers.ps1
+
+        $env:CONFIGURATION = "${{ matrix.build_configuration }}"
+
+        $isTag = "${{ github.ref_type }}" -eq "tag"
+        $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
+        
+        $tagName = "manual-build"
+        if ($isTag) {
+            $tagName = "${{ github.ref_name }}"
+        } elseif ($isManual) {
+            $inputTag = "${{ github.event.inputs.manual_tag }}".Trim()
+            $tagName = if ($inputTag) { $inputTag } else { "manual-build" }
+        }
+        $env:APPVEYOR_REPO_TAG_NAME = $tagName
+
+        function Push-AppveyorArtifact ($path, $FileName) { 
+            Write-Output "AppVeyor artifact intercepted: $path -> Move to root for GitHub Actions"
+            Copy-Item $path -Destination "$pwd/" -Force
+        }
+
+        if ("${{ matrix.build_platform }}" -eq "x64") {
+            CollectNpp $true
+        } else {
+            CollectNpp $false
+        }
+
+        $vsixSrc = "CodeAlignment.VisualStudio\bin\$env:CONFIGURATION\CodeAlignment.vsix"
+        if (Test-Path $vsixSrc) {
+            $platformClean = "${{ matrix.build_platform }}".Replace(" ", "_")
+            $vsixDest = "CodeAlignment_$($tagName)_$platformClean.vsix"
+            Copy-Item $vsixSrc -Destination $vsixDest -Force
+            echo "VSIX_FILE=$vsixDest" >> $env:GITHUB_ENV
+            echo "HAS_VSIX=true" >> $env:GITHUB_ENV
+        } else {
+            echo "HAS_VSIX=false" >> $env:GITHUB_ENV
+        }
+
+        $zipSuffix = if ("${{ matrix.build_platform }}" -eq "x64") { "x64.zip" } else { "x86.zip" }
+        $expectedZipName = "CodeAlignmentNpp_$($tagName)_$zipSuffix"
+
+        echo "ZIP_FILE_NAME=$expectedZipName" >> $env:GITHUB_ENV
+        echo "RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
+
+    - name: Upload VSIX Artifact
+      if: env.HAS_VSIX == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: CodeAlignment-VSIX-${{ matrix.build_platform }}
+        path: ${{ env.VSIX_FILE }}
+        retention-days: 5
+
+    - name: Upload Zip Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: CodeAlignment-Zip-${{ matrix.build_platform }}
+        path: ${{ env.ZIP_FILE_NAME }}
+        retention-days: 5
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag' || github.ref_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: CodeAlignment-*
+          merge-multiple: true
+
+      - name: Set Release Tag
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "RELEASE_TAG=${{ github.ref_name }}" >> $GITHUB_ENV
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            INPUT_TAG=$(echo "${{ github.event.inputs.manual_tag }}" | xargs)
+            if [[ -n "$INPUT_TAG" ]]; then
+              echo "RELEASE_TAG=$INPUT_TAG" >> $GITHUB_ENV
+            else
+              echo "RELEASE_TAG=manual-build" >> $GITHUB_ENV
+            fi
+          else
+            echo "RELEASE_TAG=release-branch-build" >> $GITHUB_ENV
+          fi
+
+      - name: Delete Old Release (Non-tag builds only)
+        if: github.ref_type != 'tag'
+        uses: dev-drprasad/delete-tag-and-release@v1.1
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          delete_release: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            *.zip
+            *.vsix
+          generate_release_notes: true
+          draft: true
+          prerelease: ${{ github.ref_type != 'tag' && env.RELEASE_TAG == 'manual-build' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
