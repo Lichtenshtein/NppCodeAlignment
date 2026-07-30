@@ -41,9 +41,11 @@ jobs:
       - name: Restore NuGet Packages
         run: |
           nuget restore CodeAlignment.VisualStudio\packages.config -PackagesDirectory packages
-          if (exist "Test\CodeAlignment.Common.Test\packages.config") (
+
+          if (Test-Path "Test\CodeAlignment.Common.Test\packages.config") {
               nuget restore Test\CodeAlignment.Common.Test\packages.config -PackagesDirectory packages
-          )
+          }
+
           msbuild code-alignment.sln /t:Restore
 
       - name: Update Assembly Versions
