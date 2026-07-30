@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         build_configuration: [ Release ]
-        build_platform: [ "Any CPU", "x64" ]
+        build_platform: [ "x64" ] # "Any CPU", 
 
     steps:
     - name: Checkout repo
@@ -46,14 +46,31 @@ jobs:
     - name: Update Assembly Versions
       shell: pwsh
       run: |
+        function UpdateVersion($project, $version) {
+            $file = "./$project/Properties/AssemblyInfo.cs"
+            if (Test-Path $file) {
+                Write-Output "Update version in: $file -> $version"
+                $content = Get-Content $file | Foreach-Object {$_ -replace "AssemblyVersion\s*\([^\)]+\)", "AssemblyVersion(`"$version`")" }
+                $content = $content | Foreach-Object {$_ -replace "AssemblyFileVersion\s*\([^\)]+\)", "AssemblyFileVersion(`"$version`")" }
+                $content | Set-Content $file -Encoding UTF8
+            } else {
+                Write-Warning "File not found, skip: $file (perhaps this is a C++ or custom project)"
+            }
+        }
+
         . .\buildhelpers.ps1
+
         $buildVersion = "14.1.${{ github.run_number }}.0"
+        Write-Output "Target build version: $buildVersion"
 
         UpdateVersion   CodeAlignment.Common          $buildVersion
         UpdateVersion   CodeAlignment.Common.WinForms $buildVersion
         UpdateVersion   CodeAlignment.Npp             $buildVersion
         UpdateVersion   CodeAlignmentGenericCallbacks $buildVersion
-        UpdateVsVersion CodeAlignment.VisualStudio    $buildVersion
+
+        if (Test-Path "./CodeAlignment.VisualStudio/CodeAlignmentPackage.cs") {
+            UpdateVsVersion CodeAlignment.VisualStudio    $buildVersion
+        }
 
         echo "BUILD_VERSION=$buildVersion" >> $env:GITHUB_ENV
 
