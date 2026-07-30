@@ -23,6 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         build_configuration: [ Release ]
+        # If build Any CPU, build the entire solution (including VSIX)
+        # If building x64, force to build ONLY the Notepad++ plugin
         build_platform: [ "x64" ] # "Any CPU",
         toolset: [ v143 ]
 
@@ -86,7 +88,12 @@ jobs:
 
       - name: Run MSBuild
         run: |
-          msbuild code-alignment.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
+          if ("${{ matrix.build_platform }}" -eq "Any CPU") {
+              msbuild code-alignment.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
+          } else {
+              echo "Сборка x64: Компилируем только плагин Notepad++..."
+              msbuild CodeAlignment.Npp\CodeAlignment.Npp.csproj /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
+          }
 
       - name: Prepare and Pack Artifacts
         shell: pwsh
@@ -107,7 +114,7 @@ jobs:
           $env:APPVEYOR_REPO_TAG_NAME = $tagName
 
           function Push-AppveyorArtifact ($path, $FileName) { 
-              Copy-Item $path -Destination "$pwd/" -Force
+              Copy-Item $path -Destination "$origin/" -Force
           }
 
           $is64 = "${{ matrix.build_platform }}" -eq "x64"
@@ -121,14 +128,19 @@ jobs:
               echo "HAS_ZIP=false" >> $env:GITHUB_ENV
           }
 
-          $vsixSrc = "CodeAlignment.VisualStudio\bin\$env:CONFIGURATION\CodeAlignment.vsix"
-          if (Test-Path $vsixSrc) {
-              $platformClean = "${{ matrix.build_platform }}".Replace(" ", "_")
-              $vsixDest = "CodeAlignment_$($tagName)_$platformClean.vsix"
-              Copy-Item $vsixSrc -Destination $vsixDest -Force
-              echo "VSIX_FILE=$vsixDest" >> $env:GITHUB_ENV
-              echo "HAS_VSIX=true" >> $env:GITHUB_ENV
+          if ("${{ matrix.build_platform }}" -eq "Any CPU") {
+              $vsixSrc = "CodeAlignment.VisualStudio\bin\$env:CONFIGURATION\CodeAlignment.vsix"
+              if (Test-Path $vsixSrc) {
+                  $platformClean = "${{ matrix.build_platform }}".Replace(" ", "_")
+                  $vsixDest = "CodeAlignment_$($tagName)_$platformClean.vsix"
+                  Copy-Item $vsixSrc -Destination $vsixDest -Force
+                  echo "VSIX_FILE=$vsixDest" >> $env:GITHUB_ENV
+                  echo "HAS_VSIX=true" >> $env:GITHUB_ENV
+              } else {
+                  echo "HAS_VSIX=false" >> $env:GITHUB_ENV
+              }
           } else {
+
               echo "HAS_VSIX=false" >> $env:GITHUB_ENV
           }
 
