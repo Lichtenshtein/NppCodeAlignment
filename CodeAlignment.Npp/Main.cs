@@ -40,7 +40,7 @@ namespace CMcG.CodeAlignment
             SetCommand( 4, "Align by quote (\")",    x => x.AlignBy(Key.Quotes));
             SetCommand( 5, "Align by period",        x => x.AlignBy(Key.Period));
             SetCommand( 6, "Align by space",         x => x.AlignBy(Key.Space));
-            SetCommand( 6, "Align from caret",       x => x.AlignByDialog(alignFromCaret:true));
+            SetCommand( 7, "Align from caret",       x => x.AlignByDialog(alignFromCaret:true));
             SetCommand(99, "Align by key",           x => x.AlignByKey(),    new ShortcutKey(true, false, false, Keys.Oemplus));
         }
 

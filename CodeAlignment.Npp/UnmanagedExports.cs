@@ -28,7 +28,7 @@ namespace CMcG.CodeAlignment
             return null;
         }
 
-        [DllExport(CallingConvention=CallingConvention.Cdecl)]
+        [DllExport("isUnicode", CallingConvention = CallingConvention.Cdecl)]
         static bool isUnicode() => true;
 
         [DllExport(CallingConvention = CallingConvention.Cdecl)]
