@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build_windows:
     runs-on: windows-2022
     strategy:
       fail-fast: false
