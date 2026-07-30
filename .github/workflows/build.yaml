@@ -24,137 +24,132 @@ jobs:
       matrix:
         build_configuration: [ Release ]
         build_platform: [ "x64" ] # "Any CPU",
+        toolset: [ v143 ]
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-    - name: Setup NuGet
-      uses: nuget/setup-nuget@v2
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
 
-    - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v3
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
 
-    - name: Restore NuGet Packages
-      run: |
-        nuget restore CodeAlignment.VisualStudio\packages.config -PackagesDirectory packages
-        nuget restore Test\CodeAlignment.Common.Test\packages.config -PackagesDirectory packages
-        msbuild code-alignment.sln /t:Restore
+      - name: Restore NuGet Packages
+        run: |
+          nuget restore CodeAlignment.VisualStudio\packages.config -PackagesDirectory packages
+          if (exist "Test\CodeAlignment.Common.Test\packages.config") (
+              nuget restore Test\CodeAlignment.Common.Test\packages.config -PackagesDirectory packages
+          )
+          msbuild code-alignment.sln /t:Restore
 
-    - name: Update Assembly Versions
-      shell: pwsh
-      run: |
-        $buildVersion = "14.1.${{ github.run_number }}.0"
-        Write-Output "Target build version: $buildVersion"
+      - name: Update Assembly Versions
+        shell: pwsh
+        run: |
+          $buildVersion = "14.1.${{ github.run_number }}.0"
+          Write-Output "Target build version: $buildVersion"
 
-        function Safe-Replace($filePath, $pattern, $replacement) {
-            if (Test-Path $filePath) {
-                Write-Output "File update: $filePath"
-                $content = Get-Content $filePath | Foreach-Object { $_ -replace $pattern, $replacement }
-                $content | Set-Content $filePath -Encoding UTF8
-            } else {
-                Write-Warning "File not found, skip: $filePath"
-            }
-        }
+          function Safe-Replace($filePath, $pattern, $replacement) {
+              if (Test-Path $filePath) {
+                  $content = Get-Content $filePath | Foreach-Object { $_ -replace $pattern, $replacement }
+                  $content | Set-Content $filePath -Encoding UTF8
+              }
+          }
 
-        $assemblyFiles = @(
-            "./CodeAlignment.Common/Properties/AssemblyInfo.cs",
-            "./CodeAlignment.Common.WinForms/Properties/AssemblyInfo.cs",
-            "./CodeAlignment.VisualStudio/Properties/AssemblyInfo.cs",
-            "./Test/CodeAlignment.Common.Test/Properties/AssemblyInfo.cs"
-        )
+          $assemblyFiles = @(
+              "./CodeAlignment.Common/Properties/AssemblyInfo.cs",
+              "./CodeAlignment.Common.WinForms/Properties/AssemblyInfo.cs",
+              "./CodeAlignment.VisualStudio/Properties/AssemblyInfo.cs",
+              "./CodeAlignment.Npp/Properties/AssemblyInfo.cs",
+              "./Test/CodeAlignment.Common.Test/Properties/AssemblyInfo.cs"
+          )
 
-        foreach ($file in $assemblyFiles) {
-            Safe-Replace $file "AssemblyVersion\s*\([^\)]+\)"     "AssemblyVersion(`"$buildVersion`")"
-            Safe-Replace $file "AssemblyFileVersion\s*\([^\)]+\)" "AssemblyFileVersion(`"$buildVersion`")"
-        }
+          foreach ($file in $assemblyFiles) {
+              Safe-Replace $file "AssemblyVersion\s*\([^\)]+\)"     "AssemblyVersion(`"$buildVersion`")"
+              Safe-Replace $file "AssemblyFileVersion\s*\([^\)]+\)" "AssemblyFileVersion(`"$buildVersion`")"
+          }
 
-        $pkgFile = "./CodeAlignment.VisualStudio/CodeAlignmentPackage.cs"
-        Safe-Replace $pkgFile `
-            "\[InstalledProductRegistration\(`"#110`", `"#112`", `"[^`"]+`", IconResourceID = 400\)\]" `
-            "[InstalledProductRegistration(`"#110`", `"#112`", `"$buildVersion`", IconResourceID = 400)]"
+          Safe-Replace "./CodeAlignment.VisualStudio/CodeAlignmentPackage.cs" `
+              "\[InstalledProductRegistration\(`"#110`", `"#112`", `"[^`"]+`", IconResourceID = 400\)\]" `
+              "[InstalledProductRegistration(`"#110`", `"#112`", `"$buildVersion`", IconResourceID = 400)]"
 
-        $manifestFile = "./CodeAlignment.VisualStudio/source.extension.vsixmanifest"
-        Safe-Replace $manifestFile `
-            "Id=`"2adcbb11-89c4-451e-97f2-14049154ccad`"\s+Version=`"[^`"]+`"" `
-            "Id=`"2adcbb11-89c4-451e-97f2-14049154ccad`" Version=`"$buildVersion`""
+          Safe-Replace "./CodeAlignment.VisualStudio/source.extension.vsixmanifest" `
+              "Id=`"2adcbb11-89c4-451e-97f2-14049154ccad`"\s+Version=`"[^`"]+`"" `
+              "Id=`"2adcbb11-89c4-451e-97f2-14049154ccad`" Version=`"$buildVersion`""
 
-        Safe-Replace $manifestFile `
-            "Version=`"[^`"]+`"\s+Id=`"2adcbb11-89c4-451e-97f2-14049154ccad`"" `
-            "Version=`"$buildVersion`" Id=`"2adcbb11-89c4-451e-97f2-14049154ccad`""
+          echo "BUILD_VERSION=$buildVersion" >> $env:GITHUB_ENV
 
-        echo "BUILD_VERSION=$buildVersion" >> $env:GITHUB_ENV
+      - name: Run MSBuild
+        run: |
+          msbuild code-alignment.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
 
-    - name: MSBuild of solution
-      run: |
-        msbuild code-alignment.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
+      - name: Prepare and Pack Artifacts
+        shell: pwsh
+        run: |
+          . .\buildhelpers.ps1
+          $env:CONFIGURATION = "${{ matrix.build_configuration }}"
 
-    - name: Prepare and Pack Artifacts
-      shell: pwsh
-      run: |
-        . .\buildhelpers.ps1
+          $isTag = "${{ github.ref_type }}" -eq "tag"
+          $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
+          $isReleaseBranch = "${{ github.ref_name }}" -eq "release"
 
-        $env:CONFIGURATION = "${{ matrix.build_configuration }}"
+          $tagName = "manual-build"
+          if ($isTag) { $tagName = "${{ github.ref_name }}" }
+          elseif ($isManual) {
+              $inputTag = "${{ github.event.inputs.manual_tag }}".Trim()
+              $tagName = if ($inputTag) { $inputTag } else { "manual-build" }
+          }
+          $env:APPVEYOR_REPO_TAG_NAME = $tagName
 
-        $isTag = "${{ github.ref_type }}" -eq "tag"
-        $isManual = "${{ github.event_name }}" -eq "workflow_dispatch"
-        
-        $tagName = "manual-build"
-        if ($isTag) {
-            $tagName = "${{ github.ref_name }}"
-        } elseif ($isManual) {
-            $inputTag = "${{ github.event.inputs.manual_tag }}".Trim()
-            $tagName = if ($inputTag) { $inputTag } else { "manual-build" }
-        }
-        $env:APPVEYOR_REPO_TAG_NAME = $tagName
+          function Push-AppveyorArtifact ($path, $FileName) { 
+              Copy-Item $path -Destination "$pwd/" -Force
+          }
 
-        function Push-AppveyorArtifact ($path, $FileName) { 
-            Write-Output "AppVeyor artifact intercepted: $path -> Move to root for GitHub Actions"
-            Copy-Item $path -Destination "$pwd/" -Force
-        }
+          $is64 = "${{ matrix.build_platform }}" -eq "x64"
+          if (Test-Path "CodeAlignment.Npp") {
+              CollectNpp $is64
+              $zipSuffix = if ($is64) { "x64.zip" } else { "x86.zip" }
+              $expectedZipName = "CodeAlignmentNpp_$($tagName)_$zipSuffix"
+              echo "ZIP_FILE_NAME=$expectedZipName" >> $env:GITHUB_ENV
+              echo "HAS_ZIP=true" >> $env:GITHUB_ENV
+          } else {
+              echo "HAS_ZIP=false" >> $env:GITHUB_ENV
+          }
 
-        if ("${{ matrix.build_platform }}" -eq "x64") {
-            CollectNpp $true
-        } else {
-            CollectNpp $false
-        }
+          $vsixSrc = "CodeAlignment.VisualStudio\bin\$env:CONFIGURATION\CodeAlignment.vsix"
+          if (Test-Path $vsixSrc) {
+              $platformClean = "${{ matrix.build_platform }}".Replace(" ", "_")
+              $vsixDest = "CodeAlignment_$($tagName)_$platformClean.vsix"
+              Copy-Item $vsixSrc -Destination $vsixDest -Force
+              echo "VSIX_FILE=$vsixDest" >> $env:GITHUB_ENV
+              echo "HAS_VSIX=true" >> $env:GITHUB_ENV
+          } else {
+              echo "HAS_VSIX=false" >> $env:GITHUB_ENV
+          }
 
-        $vsixSrc = "CodeAlignment.VisualStudio\bin\$env:CONFIGURATION\CodeAlignment.vsix"
-        if (Test-Path $vsixSrc) {
-            $platformClean = "${{ matrix.build_platform }}".Replace(" ", "_")
-            $vsixDest = "CodeAlignment_$($tagName)_$platformClean.vsix"
-            Copy-Item $vsixSrc -Destination $vsixDest -Force
-            echo "VSIX_FILE=$vsixDest" >> $env:GITHUB_ENV
-            echo "HAS_VSIX=true" >> $env:GITHUB_ENV
-        } else {
-            echo "HAS_VSIX=false" >> $env:GITHUB_ENV
-        }
+          echo "RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
 
-        $zipSuffix = if ("${{ matrix.build_platform }}" -eq "x64") { "x64.zip" } else { "x86.zip" }
-        $expectedZipName = "CodeAlignmentNpp_$($tagName)_$zipSuffix"
+      - name: Upload VSIX Artifact
+        if: env.HAS_VSIX == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAlignment-VSIX-${{ matrix.build_platform }}
+          path: ${{ env.VSIX_FILE }}
+          retention-days: 5
 
-        echo "ZIP_FILE_NAME=$expectedZipName" >> $env:GITHUB_ENV
-        echo "RELEASE_TAG=$tagName" >> $env:GITHUB_ENV
-
-    - name: Upload VSIX Artifact
-      if: env.HAS_VSIX == 'true'
-      uses: actions/upload-artifact@v4
-      with:
-        name: CodeAlignment-VSIX-${{ matrix.build_platform }}
-        path: ${{ env.VSIX_FILE }}
-        retention-days: 5
-
-    - name: Upload Zip Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: CodeAlignment-Zip-${{ matrix.build_platform }}
-        path: ${{ env.ZIP_FILE_NAME }}
-        retention-days: 5
+      - name: Upload Zip Artifact
+        if: env.HAS_ZIP == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeAlignment-Plugin-Zip-${{ matrix.build_platform }}
+          path: ${{ env.ZIP_FILE_NAME }}
+          retention-days: 5
 
   publish:
-    needs: build
+    needs: build_windows
     if: github.ref_type == 'tag' || github.ref_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
