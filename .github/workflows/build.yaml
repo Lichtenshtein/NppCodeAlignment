@@ -195,8 +195,6 @@ jobs:
           files: |
             *.zip
             *.vsix
-          generate_release_notes: true
-          draft: true
           prerelease: ${{ env.RELEASE_TAG == 'manual-build' }}
           make_latest: true
         env:
