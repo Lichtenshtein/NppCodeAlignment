@@ -91,8 +91,8 @@ jobs:
           if ("${{ matrix.build_platform }}" -eq "Any CPU") {
               msbuild code-alignment.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
           } else {
-              echo "Сборка x64: Компилируем только плагин Notepad++..."
-              msbuild CodeAlignment.Npp\CodeAlignment.Npp.csproj /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
+              echo "Build x64: We compile only the plugin from the solution file..."
+              msbuild code-alignment.sln /t:CodeAlignment_Npp /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}" /verbosity:minimal
           }
 
       - name: Prepare and Pack Artifacts
