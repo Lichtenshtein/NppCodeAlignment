@@ -188,17 +188,8 @@ jobs:
             echo "RELEASE_TAG=release-branch-build" >> $GITHUB_ENV
           fi
 
-      - name: Delete Old Release (Non-tag builds only)
-        if: github.ref_type != 'tag'
-        uses: dev-drprasad/delete-tag-and-release@v1.1
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          delete_release: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
       - name: GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3.0.2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
@@ -206,6 +197,7 @@ jobs:
             *.vsix
           generate_release_notes: true
           draft: true
-          prerelease: ${{ github.ref_type != 'tag' && env.RELEASE_TAG == 'manual-build' }}
+          prerelease: ${{ env.RELEASE_TAG == 'manual-build' }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
